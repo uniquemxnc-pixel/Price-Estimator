@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Price Estimator (Spreadsheet-Driven)</title>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root { --bg:#0b1020; --card:#121a33; --muted:#aab3d1; --text:#eef1ff; --accent:#7aa2ff; --danger:#ff6b6b; }
+    *{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    body{margin:0;background:linear-gradient(180deg,#08102a,#060a18);color:var(--text);}
+    .wrap{max-width:980px;margin:0 auto;padding:20px}
+    h1{font-size:20px;margin:0 0 14px 0}
+    .grid{display:grid;gap:14px}
+    @media (min-width:900px){ .grid{grid-template-columns:1.1fr .9fr} }
+    .card{background:rgba(18,26,51,.92);border:1px solid rgba(122,162,255,.18);border-radius:16px;padding:14px;box-shadow:0 8px 22px rgba(0,0,0,.25)}
+    label{display:block;font-size:12px;color:var(--muted);margin:10px 0 6px}
+    select,input[type="number"],input[type="text"]{
+      width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(122,162,255,.22);
+      background:#0a1230;color:var(--text);outline:none
+    }
+    input[type="file"]{width:100%}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .row > *{flex:1 1 220px}
+    button{
+      cursor:pointer;border:0;border-radius:12px;padding:10px 12px;
+      background:linear-gradient(135deg,rgba(122,162,255,.95),rgba(122,162,255,.65));
+      color:#07102b;font-weight:650
+    }
+    button.secondary{background:transparent;color:var(--text);border:1px solid rgba(122,162,255,.35)}
+    button.danger{background:linear-gradient(135deg,rgba(255,107,107,.95),rgba(255,107,107,.65));color:#2a0505}
+    .hint{font-size:12px;color:var(--muted);line-height:1.35}
+    .divider{height:1px;background:rgba(122,162,255,.16);margin:12px 0}
+    .pill{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(122,162,255,.25);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:12px}
+    .list{max-height:320px;overflow:auto;border:1px solid rgba(122,162,255,.18);border-radius:14px;padding:10px;background:#07102b}
+    .item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 6px;border-bottom:1px dashed rgba(122,162,255,.14)}
+    .item:last-child{border-bottom:0}
+    .left{display:flex;align-items:center;gap:10px;min-width:0}
+    .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .price{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+    .qty{width:92px}
+    .total{font-size:26px;font-weight:800;letter-spacing:.2px}
+    .mono{font-variant-numeric:tabular-nums}
+    .toast{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(122,162,255,.12);border:1px solid rgba(122,162,255,.22);color:var(--muted);font-size:12px}
+    .warn{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.35)}
+    .small{font-size:11px;color:var(--muted)}
+    .actions{display:flex;gap:10px;flex-wrap:wrap}
+    .actions button{flex:1 1 160px}
+    a{color:var(--accent)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Price Estimator (Spreadsheet-Driven)</h1>
+    <div class="grid">
+      <div class="card">
+        <div class="row">
+          <div>
+            <label>1) Product line</label>
+            <select id="lineSelect"></select>
+            <div class="hint" style="margin-top:6px">
+              Import each product line as its own spreadsheet. The file name becomes the product-line name.
+            </div>
+          </div>
+          <div>
+            <label>Import / update spreadsheet</label>
+            <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
+            <div class="actions" style="margin-top:10px">
+              <button id="importBtn">Import / Update</button>
+              <button class="secondary" id="downloadTemplateBtn">Download template</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <label>2) Buyer type</label>
+        <select id="buyerSelect" disabled></select>
+
+        <div class="divider"></div>
+
+        <div class="row">
+          <div style="flex:1 1 520px">
+            <label>3) Select products</label>
+            <input id="searchInput" type="text" placeholder="Search products..." disabled />
+            <div id="productList" class="list" style="margin-top:10px;opacity:.6"></div>
+            <div class="hint" style="margin-top:8px">
+              Quantities appear on the right once you select products.
+            </div>
+          </div>
+
+          <div style="flex:1 1 300px">
+            <label>Selected items</label>
+            <div id="selectedList" class="list" style="max-height:380px"></div>
+            <div class="divider"></div>
+            <div class="pill">Subtotal: <span class="total mono" id="total">$0.00</span></div>
+            <div class="actions" style="margin-top:12px">
+              <button id="copyBtn">Copy quote</button>
+              <button class="secondary" id="downloadCsvBtn">Download CSV</button>
+              <button class="danger" id="clearLineBtn">Clear this line</button>
+            </div>
+            <div id="toast" class="toast" style="display:none"></div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <details>
+          <summary class="hint" style="cursor:pointer">Spreadsheet format (important)</summary>
+          <div class="hint" style="margin-top:8px">
+            The first row must be headers. Column A should be the product name (header can be <span class="mono">Product</span>).
+            Each additional column is a buyer type (e.g., <span class="mono">Retail</span>, <span class="mono">Wholesale</span>, <span class="mono">Distributor</span>).
+            Each row thereafter is a product, with numeric prices. Example:
+            <pre class="hint" style="white-space:pre-wrap;margin:8px 0 0 0">
+Product | Retail | Wholesale
+Plate 10" | 12.50 | 9.25
+Mug 12oz | 8.00 | 5.75</pre>
+          </div>
+        </details>
+
+        <details style="margin-top:10px">
+          <summary class="hint" style="cursor:pointer">Where data is stored</summary>
+          <div class="hint" style="margin-top:8px">
+            Imported price sheets are stored locally in your browser (LocalStorage). This is intentionally offline-friendly.
+            If you open this app on another device, import the sheets there as well (or host a shared backend later).
+          </div>
+        </details>
+
+      </div>
+
+      <div class="card">
+        <div class="pill">Status: <span id="statusText">No price sheets imported yet.</span></div>
+        <div class="divider"></div>
+
+        <h2 style="font-size:14px;margin:0 0 10px 0;color:var(--muted);font-weight:700">Quick start</h2>
+        <ol class="hint" style="margin:0 0 0 18px;padding:0;line-height:1.5">
+          <li>Click <b>Download template</b> and mirror the format in your spreadsheets.</li>
+          <li>Import one spreadsheet per product line (file name becomes the line name).</li>
+          <li>Select a line -> select buyer type -> pick products -> enter quantities.</li>
+          <li>Use <b>Copy quote</b> to paste totals into a text/email.</li>
+        </ol>
+
+        <div class="divider"></div>
+
+        <h2 style="font-size:14px;margin:0 0 10px 0;color:var(--muted);font-weight:700">Sharing as a URL</h2>
+        <div class="hint">
+          This is a single-file web app. To share it across devices/company:
+          <ul style="margin:8px 0 0 18px;padding:0;line-height:1.5">
+            <li>Host the file on your internal SharePoint/Google Drive as a static webpage, or</li>
+            <li>Use GitHub Pages / Netlify / Vercel (free tiers) and share the link.</li>
+          </ul>
+          If you want centralized price data (no per-device imports), you will need a small backend (e.g., Google Sheets API, Airtable, Supabase).
+        </div>
+
+        <div class="divider"></div>
+
+        <h2 style="font-size:14px;margin:0 0 10px 0;color:var(--muted);font-weight:700">Admin actions</h2>
+        <div class="actions">
+          <button class="secondary" id="exportJsonBtn">Export all sheets (JSON)</button>
+          <button class="secondary" id="importJsonBtn">Import sheets (JSON)</button>
+          <button class="danger" id="wipeAllBtn">Wipe all data</button>
+        </div>
+        <input id="jsonInput" type="file" accept=".json" style="display:none;margin-top:10px" />
+        <div class="small" style="margin-top:10px">
+          Tip: export JSON once, then share that JSON file internally so sales reps can import everything in one click.
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  if (typeof XLSX === "undefined") {
+    document.addEventListener("DOMContentLoaded", () => {
+      const t = document.getElementById("toast");
+      if (t) { t.style.display="block"; t.textContent = "Spreadsheet library failed to load. If you opened this as a file:// URL, try running a local server or ensure you are online."; t.classList.add("warn"); }
+    });
+    return;
+  }
+
+  const LS_KEY = "priceSheets.v1";
+
+  const el = (id) => document.getElementById(id);
+
+  const lineSelect = el("lineSelect");
+  const buyerSelect = el("buyerSelect");
+  const fileInput = el("fileInput");
+  const importBtn = el("importBtn");
+  const downloadTemplateBtn = el("downloadTemplateBtn");
+  const searchInput = el("searchInput");
+  const productList = el("productList");
+  const selectedList = el("selectedList");
+  const totalEl = el("total");
+  const statusText = el("statusText");
+  const toast = el("toast");
+  const copyBtn = el("copyBtn");
+  const downloadCsvBtn = el("downloadCsvBtn");
+  const clearLineBtn = el("clearLineBtn");
+  const exportJsonBtn = el("exportJsonBtn");
+  const importJsonBtn = el("importJsonBtn");
+  const jsonInput = el("jsonInput");
+  const wipeAllBtn = el("wipeAllBtn");
+
+  let sheets = loadSheets();
+  let state = {
+    lineName: "",
+    buyerType: "",
+    selected: new Map(), // productName -> qty
+    search: ""
+  };
+
+  function loadSheets() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveSheets() {
+    localStorage.setItem(LS_KEY, JSON.stringify(sheets));
+    refreshStatus();
+  }
+
+  function refreshStatus() {
+    const lines = Object.keys(sheets);
+    if (lines.length === 0) statusText.textContent = "No price sheets imported yet.";
+    else statusText.textContent = `${lines.length} product line(s) available: ${lines.join(", ")}`;
+  }
+
+  function formatMoney(v) {
+    const n = Number(v || 0);
+    return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  }
+
+  function showToast(msg, kind="info") {
+    toast.style.display = "block";
+    toast.textContent = msg;
+    toast.classList.toggle("warn", kind === "warn");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => { toast.style.display = "none"; }, 2500);
+  }
+
+  function getCurrentSheet() {
+    if (!state.lineName) return null;
+    return sheets[state.lineName] || null;
+  }
+
+  function buildLineOptions() {
+    const lines = Object.keys(sheets).sort((a,b)=>a.localeCompare(b));
+    lineSelect.innerHTML = "";
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = lines.length ? "Select a product line..." : "Import a spreadsheet to begin...";
+    lineSelect.appendChild(opt0);
+
+    for (const ln of lines) {
+      const opt = document.createElement("option");
+      opt.value = ln;
+      opt.textContent = ln;
+      lineSelect.appendChild(opt);
+    }
+    lineSelect.value = state.lineName || "";
+  }
+
+  function buildBuyerOptions() {
+    const sheet = getCurrentSheet();
+    buyerSelect.innerHTML = "";
+    if (!sheet) {
+      buyerSelect.disabled = true;
+      const o = document.createElement("option");
+      o.value = "";
+      o.textContent = "Select a product line first...";
+      buyerSelect.appendChild(o);
+      return;
+    }
+    buyerSelect.disabled = false;
+    const o0 = document.createElement("option");
+    o0.value = "";
+    o0.textContent = "Select buyer type...";
+    buyerSelect.appendChild(o0);
+    for (const bt of sheet.buyerTypes) {
+      const o = document.createElement("option");
+      o.value = bt;
+      o.textContent = bt;
+      buyerSelect.appendChild(o);
+    }
+    buyerSelect.value = state.buyerType || "";
+  }
+
+  function buildProductList() {
+    const sheet = getCurrentSheet();
+    const ready = sheet && state.buyerType;
+    searchInput.disabled = !ready;
+    productList.style.opacity = ready ? "1" : ".6";
+    productList.innerHTML = "";
+
+    if (!sheet) {
+      productList.innerHTML = `<div class="hint">Import and select a product line.</div>`;
+      return;
+    }
+    if (!state.buyerType) {
+      productList.innerHTML = `<div class="hint">Select a buyer type to view prices.</div>`;
+      return;
+    }
+
+    const q = (state.search || "").trim().toLowerCase();
+    const rows = sheet.products
+      .filter(p => !q || p.name.toLowerCase().includes(q))
+      .sort((a,b)=>a.name.localeCompare(b.name));
+
+    if (rows.length === 0) {
+      productList.innerHTML = `<div class="hint">No products match your search.</div>`;
+      return;
+    }
+
+    for (const p of rows) {
+      const price = p.prices[state.buyerType];
+      const isChecked = state.selected.has(p.name);
+
+      const row = document.createElement("div");
+      row.className = "item";
+
+      const left = document.createElement("div");
+      left.className = "left";
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = isChecked;
+      cb.addEventListener("change", () => {
+        if (cb.checked) state.selected.set(p.name, 1);
+        else state.selected.delete(p.name);
+        render();
+      });
+
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = p.name;
+
+      left.appendChild(cb);
+      left.appendChild(name);
+
+      const priceEl = document.createElement("div");
+      priceEl.className = "price mono";
+      priceEl.textContent = (price == null || Number.isNaN(price)) ? "N/A" : formatMoney(price);
+
+      row.appendChild(left);
+      row.appendChild(priceEl);
+
+      productList.appendChild(row);
+    }
+  }
+
+  function buildSelectedListAndTotal() {
+    const sheet = getCurrentSheet();
+    selectedList.innerHTML = "";
+
+    if (!sheet || !state.buyerType) {
+      selectedList.innerHTML = `<div class="hint">Select a line and buyer type, then choose products.</div>`;
+      totalEl.textContent = formatMoney(0);
+      return;
+    }
+
+    const items = [...state.selected.entries()].map(([name, qty]) => {
+      const prod = sheet.products.find(p => p.name === name);
+      const unit = prod ? prod.prices[state.buyerType] : null;
+      const safeQty = Math.max(0, Number(qty || 0));
+      const lineTotal = (unit == null || Number.isNaN(unit)) ? null : unit * safeQty;
+      return { name, qty: safeQty, unit, lineTotal };
+    }).sort((a,b)=>a.name.localeCompare(b.name));
+
+    if (items.length === 0) {
+      selectedList.innerHTML = `<div class="hint">No products selected.</div>`;
+      totalEl.textContent = formatMoney(0);
+      return;
+    }
+
+    let subtotal = 0;
+    let anyNA = false;
+
+    for (const it of items) {
+      const row = document.createElement("div");
+      row.className = "item";
+
+      const left = document.createElement("div");
+      left.className = "left";
+
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = it.name;
+
+      const meta = document.createElement("div");
+      meta.className = "small mono";
+      meta.textContent = `Unit: ${it.unit == null || Number.isNaN(it.unit) ? "N/A" : formatMoney(it.unit)}`;
+
+      const stack = document.createElement("div");
+      stack.style.minWidth = "0";
+      stack.appendChild(name);
+      stack.appendChild(meta);
+
+      left.appendChild(stack);
+
+      const right = document.createElement("div");
+      right.style.display = "flex";
+      right.style.alignItems = "center";
+      right.style.gap = "10px";
+
+      const qty = document.createElement("input");
+      qty.type = "number";
+      qty.className = "qty mono";
+      qty.min = "0";
+      qty.step = "1";
+      qty.value = String(it.qty);
+      qty.addEventListener("input", () => {
+        state.selected.set(it.name, qty.value);
+        updateTotalOnly();
+      });
+
+      const lt = document.createElement("div");
+      lt.className = "price mono";
+      if (it.lineTotal == null) { lt.textContent = "-"; anyNA = true; }
+      else { lt.textContent = formatMoney(it.lineTotal); subtotal += it.lineTotal; }
+
+      const del = document.createElement("button");
+      del.className = "secondary";
+      del.textContent = "Remove";
+      del.style.padding = "7px 10px";
+      del.addEventListener("click", () => {
+        state.selected.delete(it.name);
+        render();
+      });
+
+      right.appendChild(qty);
+      right.appendChild(lt);
+      right.appendChild(del);
+
+      row.appendChild(left);
+      row.appendChild(right);
+      selectedList.appendChild(row);
+    }
+
+    totalEl.textContent = formatMoney(subtotal);
+    if (anyNA) showToast("Some selected items have N/A pricing for this buyer type.", "warn");
+  }
+
+  function updateTotalOnly() {
+    const sheet = getCurrentSheet();
+    if (!sheet || !state.buyerType) { totalEl.textContent = formatMoney(0); return; }
+
+    let subtotal = 0;
+    for (const [name, qty] of state.selected.entries()) {
+      const prod = sheet.products.find(p => p.name === name);
+      if (!prod) continue;
+      const unit = prod.prices[state.buyerType];
+      if (unit == null || Number.isNaN(unit)) continue;
+      subtotal += unit * Math.max(0, Number(qty || 0));
+    }
+    totalEl.textContent = formatMoney(subtotal);
+  }
+
+  async function importSpreadsheet(file) {
+    if (!file) { showToast("Choose a spreadsheet file first.", "warn"); return; }
+
+    const lineName = file.name.replace(/\.(xlsx|xls|csv)$/i, "").trim();
+    if (!lineName) { showToast("Could not infer a product-line name from the file name.", "warn"); return; }
+
+    const data = await file.arrayBuffer();
+    let wb;
+    try {
+      wb = XLSX.read(data, { type: "array" });
+    } catch (e) {
+      showToast("Could not read spreadsheet. Ensure it is .xlsx/.xls/.csv.", "warn");
+      return;
+    }
+
+    const sheetName = wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
+
+    if (!rows || rows.length < 2) {
+      showToast("Spreadsheet looks empty (needs headers + at least one product row).", "warn");
+      return;
+    }
+
+    const headers = rows[0].map(h => String(h).trim()).filter(Boolean);
+    if (headers.length < 2) {
+      showToast("Need at least 2 columns: Product + one buyer type.", "warn");
+      return;
+    }
+
+    const buyerTypes = headers.slice(1);
+
+    const products = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const name = String(r[0] ?? "").trim();
+      if (!name) continue;
+
+      const prices = {};
+      for (let c = 1; c < headers.length; c++) {
+        const bt = headers[c];
+        const v = r[c];
+        const num = (v === "" || v == null) ? null : Number(v);
+        prices[bt] = Number.isFinite(num) ? num : null;
+      }
+      products.push({ name, prices });
+    }
+
+    if (products.length === 0) {
+      showToast("No product rows found. Ensure column A has product names.", "warn");
+      return;
+    }
+
+    sheets[lineName] = { buyerTypes, products };
+    saveSheets();
+
+    state.lineName = lineName;
+    state.buyerType = "";
+    state.selected.clear();
+    state.search = "";
+    showToast(`Imported "${lineName}" (${products.length} products).`);
+    render();
+  }
+
+  function render() {
+    buildLineOptions();
+    buildBuyerOptions();
+    buildProductList();
+    buildSelectedListAndTotal();
+    refreshStatus();
+  }
+
+  function makeQuoteText() {
+    const sheet = getCurrentSheet();
+    if (!sheet || !state.buyerType) return "No quote (select a product line and buyer type).";
+
+    const items = [...state.selected.entries()].map(([name, qty]) => {
+      const prod = sheet.products.find(p => p.name === name);
+      const unit = prod ? prod.prices[state.buyerType] : null;
+      const q = Math.max(0, Number(qty || 0));
+      const lt = (unit == null || Number.isNaN(unit)) ? null : unit * q;
+      return { name, qty:q, unit, lt };
+    }).filter(x => x.qty > 0);
+
+    let subtotal = 0;
+    const lines = [];
+    lines.push(`Product line: ${state.lineName}`);
+    lines.push(`Buyer type: ${state.buyerType}`);
+    lines.push("");
+    lines.push("Items:");
+    for (const it of items) {
+      const unitTxt = (it.unit == null || Number.isNaN(it.unit)) ? "N/A" : formatMoney(it.unit);
+      const ltTxt = (it.lt == null) ? "N/A" : formatMoney(it.lt);
+      lines.push(`- ${it.name} | Qty ${it.qty} | Unit ${unitTxt} | Line ${ltTxt}`);
+      if (it.lt != null) subtotal += it.lt;
+    }
+    lines.push("");
+    lines.push(`Subtotal: ${formatMoney(subtotal)}`);
+    return lines.join("\n");
+  }
+
+  function downloadCSV() {
+    const sheet = getCurrentSheet();
+    if (!sheet || !state.buyerType) { showToast("Select a product line and buyer type first.", "warn"); return; }
+
+    const rows = [["Product line", state.lineName], ["Buyer type", state.buyerType], [], ["Product","Qty","Unit","Line Total"]];
+    let subtotal = 0;
+
+    for (const [name, qty] of state.selected.entries()) {
+      const prod = sheet.products.find(p => p.name === name);
+      if (!prod) continue;
+      const q = Math.max(0, Number(qty || 0));
+      if (q <= 0) continue;
+      const unit = prod.prices[state.buyerType];
+      const lt = (unit == null || Number.isNaN(unit)) ? "" : unit * q;
+      if (lt !== "") subtotal += lt;
+      rows.push([name, q, unit == null ? "" : unit, lt]);
+    }
+    rows.push([]);
+    rows.push(["Subtotal","","",subtotal]);
+
+    const csv = rows.map(r => r.map(v => {
+      const s = String(v ?? "");
+      return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s;
+    }).join(",")).join("\n");
+
+    const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `quote_${state.lineName}_${state.buyerType}.csv`.replace(/[^\w\-\.]+/g,"_");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function downloadTemplate() {
+    const aoa = [
+      ["Product","Retail","Wholesale"],
+      ['Plate 10"','12.50','9.25'],
+      ['Mug 12oz','8.00','5.75']
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Prices");
+    XLSX.writeFile(wb, "ProductLineTemplate.xlsx");
+  }
+
+  function exportAllSheetsJSON() {
+    const blob = new Blob([JSON.stringify(sheets, null, 2)], { type:"application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "all_price_sheets.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function importSheetsJSON(file) {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const obj = JSON.parse(text);
+      if (!obj || typeof obj !== "object") throw new Error("Bad JSON");
+      for (const [k,v] of Object.entries(obj)) {
+        if (!v || !Array.isArray(v.buyerTypes) || !Array.isArray(v.products)) throw new Error("Bad schema");
+      }
+      sheets = obj;
+      saveSheets();
+      state.lineName = "";
+      state.buyerType = "";
+      state.selected.clear();
+      state.search = "";
+      showToast("Imported sheets JSON.");
+      render();
+    } catch (e) {
+      showToast("Could not import JSON. Ensure it was exported from this tool.", "warn");
+    }
+  }
+
+  importBtn.addEventListener("click", () => importSpreadsheet(fileInput.files[0]));
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files && fileInput.files[0]) importSpreadsheet(fileInput.files[0]);
+  });
+  downloadTemplateBtn.addEventListener("click", downloadTemplate);
+
+  lineSelect.addEventListener("change", () => {
+    state.lineName = lineSelect.value;
+    state.buyerType = "";
+    state.selected.clear();
+    state.search = "";
+    searchInput.value = "";
+    render();
+  });
+
+  buyerSelect.addEventListener("change", () => {
+    state.buyerType = buyerSelect.value;
+    state.selected.clear();
+    render();
+  });
+
+  searchInput.addEventListener("input", () => {
+    state.search = searchInput.value;
+    buildProductList();
+  });
+
+  copyBtn.addEventListener("click", async () => {
+    const text = makeQuoteText();
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Quote copied to clipboard.");
+    } catch {
+      showToast("Clipboard blocked. The quote will be shown in an alert for manual copy.", "warn");
+      alert(text);
+    }
+  });
+
+  downloadCsvBtn.addEventListener("click", downloadCSV);
+
+  clearLineBtn.addEventListener("click", () => {
+    if (!state.lineName) return;
+    state.selected.clear();
+    render();
+    showToast("Cleared selected items for this quote.");
+  });
+
+  exportJsonBtn.addEventListener("click", exportAllSheetsJSON);
+  importJsonBtn.addEventListener("click", () => { jsonInput.value = ""; jsonInput.click(); });
+  jsonInput.addEventListener("change", () => importSheetsJSON(jsonInput.files[0]));
+
+  wipeAllBtn.addEventListener("click", () => {
+    if (!confirm("Wipe ALL imported price sheets from this browser?")) return;
+    sheets = {};
+    saveSheets();
+    state.lineName = "";
+    state.buyerType = "";
+    state.selected.clear();
+    state.search = "";
+    render();
+    showToast("All data wiped.");
+  });
+
+  refreshStatus();
+  render();
+})();
+</script>
+</body>
+</html>
