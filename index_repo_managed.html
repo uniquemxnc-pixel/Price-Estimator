@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Price Estimator (Repo-Managed Sheets)</title>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root { --bg:#0b1020; --card:#121a33; --muted:#aab3d1; --text:#eef1ff; --accent:#7aa2ff; --danger:#ff6b6b; }
+    *{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    body{margin:0;background:linear-gradient(180deg,#08102a,#060a18);color:var(--text);}
+    .wrap{max-width:980px;margin:0 auto;padding:20px}
+    h1{font-size:20px;margin:0 0 14px 0}
+    .grid{display:grid;gap:14px}
+    @media (min-width:900px){ .grid{grid-template-columns:1.1fr .9fr} }
+    .card{background:rgba(18,26,51,.92);border:1px solid rgba(122,162,255,.18);border-radius:16px;padding:14px;box-shadow:0 8px 22px rgba(0,0,0,.25)}
+    label{display:block;font-size:12px;color:var(--muted);margin:10px 0 6px}
+    select,input[type="number"],input[type="text"]{
+      width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(122,162,255,.22);
+      background:#0a1230;color:var(--text);outline:none
+    }
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .row > *{flex:1 1 220px}
+    button{
+      cursor:pointer;border:0;border-radius:12px;padding:10px 12px;
+      background:linear-gradient(135deg,rgba(122,162,255,.95),rgba(122,162,255,.65));
+      color:#07102b;font-weight:650
+    }
+    button.secondary{background:transparent;color:var(--text);border:1px solid rgba(122,162,255,.35)}
+    button.danger{background:linear-gradient(135deg,rgba(255,107,107,.95),rgba(255,107,107,.65));color:#2a0505}
+    .hint{font-size:12px;color:var(--muted);line-height:1.35}
+    .divider{height:1px;background:rgba(122,162,255,.16);margin:12px 0}
+    .pill{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(122,162,255,.25);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:12px}
+    .list{max-height:320px;overflow:auto;border:1px solid rgba(122,162,255,.18);border-radius:14px;padding:10px;background:#07102b}
+    .item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 6px;border-bottom:1px dashed rgba(122,162,255,.14)}
+    .item:last-child{border-bottom:0}
+    .left{display:flex;align-items:center;gap:10px;min-width:0}
+    .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .price{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+    .qty{width:92px}
+    .total{font-size:26px;font-weight:800;letter-spacing:.2px}
+    .mono{font-variant-numeric:tabular-nums}
+    .toast{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(122,162,255,.12);border:1px solid rgba(122,162,255,.22);color:var(--muted);font-size:12px}
+    .warn{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.35)}
+    .small{font-size:11px;color:var(--muted)}
+    .actions{display:flex;gap:10px;flex-wrap:wrap}
+    .actions button{flex:1 1 160px}
+    a{color:var(--accent)}
+    .hidden{display:none !important;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Price Estimator (Repo-Managed Sheets)</h1>
+    <div class="grid">
+      <div class="card">
+        <div class="row">
+          <div>
+            <label>1) Product line</label>
+            <select id="lineSelect"></select>
+            <div class="hint" style="margin-top:6px">
+              Lines are loaded automatically from <span class="mono">/data/manifest.json</span> in this GitHub repository.
+            </div>
+          </div>
+          <div>
+            <label>Data status</label>
+            <div class="pill">Loaded: <span id="loadedCount" class="mono">0</span></div>
+            <div class="actions" style="margin-top:10px">
+              <button class="secondary" id="refreshBtn">Refresh pricing</button>
+              <button class="secondary" id="downloadTemplateBtn">Download template</button>
+            </div>
+            <div id="adminBox" class="hidden" style="margin-top:10px">
+              <div class="divider"></div>
+              <div class="hint"><b>Admin</b>: You are in admin mode (<span class="mono">?admin=1</span>). Importing here only updates <b>your browser</b>, not GitHub.</div>
+              <label style="margin-top:10px">Import (browser-only override)</label>
+              <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
+              <div class="actions" style="margin-top:10px">
+                <button id="importBtn">Import / Override</button>
+                <button class="danger" id="wipeOverridesBtn">Clear overrides</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <label>2) Buyer type</label>
+        <select id="buyerSelect" disabled></select>
+
+        <div class="divider"></div>
+
+        <div class="row">
+          <div style="flex:1 1 520px">
+            <label>3) Select products</label>
+            <input id="searchInput" type="text" placeholder="Search products..." disabled />
+            <div id="productList" class="list" style="margin-top:10px;opacity:.6"></div>
+            <div class="hint" style="margin-top:8px">
+              Quantities appear on the right once you select products.
+            </div>
+          </div>
+
+          <div style="flex:1 1 300px">
+            <label>Selected items</label>
+            <div id="selectedList" class="list" style="max-height:380px"></div>
+            <div class="divider"></div>
+            <div class="pill">Subtotal: <span class="total mono" id="total">$0.00</span></div>
+            <div class="actions" style="margin-top:12px">
+              <button id="copyBtn">Copy quote</button>
+              <button class="secondary" id="downloadCsvBtn">Download CSV</button>
+              <button class="danger" id="clearLineBtn">Clear this line</button>
+            </div>
+            <div id="toast" class="toast" style="display:none"></div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <details>
+          <summary class="hint" style="cursor:pointer">How to update prices (owner workflow)</summary>
+          <div class="hint" style="margin-top:8px">
+            1) Upload/replace spreadsheets in <span class="mono">/data</span> in your GitHub repo.<br/>
+            2) Update <span class="mono">/data/manifest.json</span> (or keep the same file name).<br/>
+            3) Everyone refreshes the page, or taps <b>Refresh pricing</b>.
+          </div>
+        </details>
+
+      </div>
+
+      <div class="card">
+        <div class="pill">Status: <span id="statusText">Loading...</span></div>
+        <div class="divider"></div>
+
+        <h2 style="font-size:14px;margin:0 0 10px 0;color:var(--muted);font-weight:700">Repository layout</h2>
+        <div class="hint">
+          Put these files in your repo root:
+          <pre class="hint" style="white-space:pre-wrap;margin:8px 0 0 0">
+/index.html
+/data/manifest.json
+/data/Talavera.xlsx
+/data/Onyx.xlsx
+...</pre>
+        </div>
+
+        <div class="divider"></div>
+
+        <h2 style="font-size:14px;margin:0 0 10px 0;color:var(--muted);font-weight:700">Notes</h2>
+        <div class="hint">
+          This version does not require other reps to import spreadsheets. It always loads pricing from your GitHub Pages site.
+          For speed/offline, it caches the last loaded data in the browser.
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  if (typeof XLSX === "undefined") {
+    document.addEventListener("DOMContentLoaded", () => {
+      const t = document.getElementById("toast");
+      if (t) { t.style.display="block"; t.textContent = "Spreadsheet library failed to load. Check your internet connection."; t.classList.add("warn"); }
+    });
+    return;
+  }
+
+  const MANIFEST_URL = "./data/manifest.json";
+  const LS_CACHE_KEY = "priceSheets.cache.v2";
+  const LS_OVERRIDES_KEY = "priceSheets.overrides.v2";
+
+  const url = new URL(location.href);
+  const isAdmin = url.searchParams.get("admin") === "1";
+
+  const el = (id) => document.getElementById(id);
+  const lineSelect = el("lineSelect");
+  const buyerSelect = el("buyerSelect");
+  const searchInput = el("searchInput");
+  const productList = el("productList");
+  const selectedList = el("selectedList");
+  const totalEl = el("total");
+  const statusText = el("statusText");
+  const toast = el("toast");
+  const loadedCount = el("loadedCount");
+  const refreshBtn = el("refreshBtn");
+  const downloadTemplateBtn = el("downloadTemplateBtn");
+  const copyBtn = el("copyBtn");
+  const downloadCsvBtn = el("downloadCsvBtn");
+  const clearLineBtn = el("clearLineBtn");
+
+  const adminBox = el("adminBox");
+  const fileInput = el("fileInput");
+  const importBtn = el("importBtn");
+  const wipeOverridesBtn = el("wipeOverridesBtn");
+
+  if (isAdmin) adminBox.classList.remove("hidden");
+
+  let sheets = {};
+  let state = { lineName:"", buyerType:"", selected:new Map(), search:"" };
+
+  function formatMoney(v) {
+    const n = Number(v || 0);
+    return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  }
+
+  function showToast(msg, kind="info") {
+    toast.style.display = "block";
+    toast.textContent = msg;
+    toast.classList.toggle("warn", kind === "warn");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => { toast.style.display = "none"; }, 2600);
+  }
+
+  function setStatus(msg) { statusText.textContent = msg; }
+
+  function loadJSONFromLS(key) {
+    try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; }
+    catch { return null; }
+  }
+  function saveJSONToLS(key, obj) { localStorage.setItem(key, JSON.stringify(obj)); }
+
+  function loadOverrides() {
+    const o = loadJSONFromLS(LS_OVERRIDES_KEY);
+    return o && typeof o === "object" ? o : {};
+  }
+
+  function getCurrentSheet() { return state.lineName ? (sheets[state.lineName] || null) : null; }
+
+  function buildLineOptions() {
+    const lines = Object.keys(sheets).sort((a,b)=>a.localeCompare(b));
+    lineSelect.innerHTML = "";
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = lines.length ? "Select a product line..." : "No lines loaded (check manifest)";
+    lineSelect.appendChild(opt0);
+    for (const ln of lines) {
+      const opt = document.createElement("option");
+      opt.value = ln;
+      opt.textContent = ln;
+      lineSelect.appendChild(opt);
+    }
+    lineSelect.value = state.lineName || "";
+  }
+
+  function buildBuyerOptions() {
+    const sheet = getCurrentSheet();
+    buyerSelect.innerHTML = "";
+    if (!sheet) {
+      buyerSelect.disabled = true;
+      const o = document.createElement("option");
+      o.value = "";
+      o.textContent = "Select a product line first...";
+      buyerSelect.appendChild(o);
+      return;
+    }
+    buyerSelect.disabled = false;
+    const o0 = document.createElement("option");
+    o0.value = "";
+    o0.textContent = "Select buyer type...";
+    buyerSelect.appendChild(o0);
+    for (const bt of sheet.buyerTypes) {
+      const o = document.createElement("option");
+      o.value = bt;
+      o.textContent = bt;
+      buyerSelect.appendChild(o);
+    }
+    buyerSelect.value = state.buyerType || "";
+  }
+
+  function buildProductList() {
+    const sheet = getCurrentSheet();
+    const ready = sheet && state.buyerType;
+    searchInput.disabled = !ready;
+    productList.style.opacity = ready ? "1" : ".6";
+    productList.innerHTML = "";
+
+    if (!sheet) { productList.innerHTML = `<div class="hint">No product line selected.</div>`; return; }
+    if (!state.buyerType) { productList.innerHTML = `<div class="hint">Select a buyer type to view prices.</div>`; return; }
+
+    const q = (state.search || "").trim().toLowerCase();
+    const rows = sheet.products
+      .filter(p => !q || p.name.toLowerCase().includes(q))
+      .sort((a,b)=>a.name.localeCompare(b.name));
+
+    if (rows.length === 0) { productList.innerHTML = `<div class="hint">No products match your search.</div>`; return; }
+
+    for (const p of rows) {
+      const price = p.prices[state.buyerType];
+      const isChecked = state.selected.has(p.name);
+
+      const row = document.createElement("div");
+      row.className = "item";
+
+      const left = document.createElement("div");
+      left.className = "left";
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = isChecked;
+      cb.addEventListener("change", () => {
+        if (cb.checked) state.selected.set(p.name, 1);
+        else state.selected.delete(p.name);
+        render();
+      });
+
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = p.name;
+
+      left.appendChild(cb); left.appendChild(name);
+
+      const priceEl = document.createElement("div");
+      priceEl.className = "price mono";
+      priceEl.textContent = (price == null || Number.isNaN(price)) ? "N/A" : formatMoney(price);
+
+      row.appendChild(left); row.appendChild(priceEl);
+      productList.appendChild(row);
+    }
+  }
+
+  function buildSelectedListAndTotal() {
+    const sheet = getCurrentSheet();
+    selectedList.innerHTML = "";
+
+    if (!sheet || !state.buyerType) {
+      selectedList.innerHTML = `<div class="hint">Select a line and buyer type, then choose products.</div>`;
+      totalEl.textContent = formatMoney(0);
+      return;
+    }
+
+    const items = [...state.selected.entries()].map(([name, qty]) => {
+      const prod = sheet.products.find(p => p.name === name);
+      const unit = prod ? prod.prices[state.buyerType] : null;
+      const safeQty = Math.max(0, Number(qty || 0));
+      const lineTotal = (unit == null || Number.isNaN(unit)) ? null : unit * safeQty;
+      return { name, qty: safeQty, unit, lineTotal };
+    }).sort((a,b)=>a.name.localeCompare(b.name));
+
+    if (items.length === 0) {
+      selectedList.innerHTML = `<div class="hint">No products selected.</div>`;
+      totalEl.textContent = formatMoney(0);
+      return;
+    }
+
+    let subtotal = 0;
+    let anyNA = false;
+
+    for (const it of items) {
+      const row = document.createElement("div");
+      row.className = "item";
+
+      const left = document.createElement("div");
+      left.className = "left";
+
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = it.name;
+
+      const meta = document.createElement("div");
+      meta.className = "small mono";
+      meta.textContent = `Unit: ${it.unit == null || Number.isNaN(it.unit) ? "N/A" : formatMoney(it.unit)}`;
+
+      const stack = document.createElement("div");
+      stack.style.minWidth = "0";
+      stack.appendChild(name); stack.appendChild(meta);
+      left.appendChild(stack);
+
+      const right = document.createElement("div");
+      right.style.display = "flex";
+      right.style.alignItems = "center";
+      right.style.gap = "10px";
+
+      const qty = document.createElement("input");
+      qty.type = "number";
+      qty.className = "qty mono";
+      qty.min = "0";
+      qty.step = "1";
+      qty.value = String(it.qty);
+      qty.addEventListener("input", () => {
+        state.selected.set(it.name, qty.value);
+        updateTotalOnly();
+      });
+
+      const lt = document.createElement("div");
+      lt.className = "price mono";
+      if (it.lineTotal == null) { lt.textContent = "-"; anyNA = true; }
+      else { lt.textContent = formatMoney(it.lineTotal); subtotal += it.lineTotal; }
+
+      const del = document.createElement("button");
+      del.className = "secondary";
+      del.textContent = "Remove";
+      del.style.padding = "7px 10px";
+      del.addEventListener("click", () => {
+        state.selected.delete(it.name);
+        render();
+      });
+
+      right.appendChild(qty); right.appendChild(lt); right.appendChild(del);
+      row.appendChild(left); row.appendChild(right);
+      selectedList.appendChild(row);
+    }
+
+    totalEl.textContent = formatMoney(subtotal);
+    if (anyNA) showToast("Some selected items have N/A pricing for this buyer type.", "warn");
+  }
+
+  function updateTotalOnly() {
+    const sheet = getCurrentSheet();
+    if (!sheet || !state.buyerType) { totalEl.textContent = formatMoney(0); return; }
+    let subtotal = 0;
+    for (const [name, qty] of state.selected.entries()) {
+      const prod = sheet.products.find(p => p.name === name);
+      if (!prod) continue;
+      const unit = prod.prices[state.buyerType];
+      if (unit == null || Number.isNaN(unit)) continue;
+      subtotal += unit * Math.max(0, Number(qty || 0));
+    }
+    totalEl.textContent = formatMoney(subtotal);
+  }
+
+  function render() {
+    buildLineOptions();
+    buildBuyerOptions();
+    buildProductList();
+    buildSelectedListAndTotal();
+    loadedCount.textContent = String(Object.keys(sheets).length);
+  }
+
+  function parseWorkbookToLine(lineName, wb) {
+    const sheetName = wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
+    if (!rows || rows.length < 2) throw new Error("Spreadsheet needs headers + at least one product row.");
+    const headers = rows[0].map(h => String(h).trim()).filter(Boolean);
+    if (headers.length < 2) throw new Error("Need at least 2 columns: Product + one buyer type.");
+    const buyerTypes = headers.slice(1);
+    const products = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const name = String(r[0] ?? "").trim();
+      if (!name) continue;
+      const prices = {};
+      for (let c = 1; c < headers.length; c++) {
+        const bt = headers[c];
+        const v = r[c];
+        const num = (v === "" || v == null) ? null : Number(v);
+        prices[bt] = Number.isFinite(num) ? num : null;
+      }
+      products.push({ name, prices });
+    }
+    if (products.length === 0) throw new Error("No product rows found (ensure col A has product names).");
+    return { buyerTypes, products };
+  }
+
+  async function fetchArrayBuffer(u) {
+    const res = await fetch(u, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Fetch failed (${res.status}) for ${u}`);
+    return await res.arrayBuffer();
+  }
+
+  async function loadFromRepo({force=false} = {}) {
+    setStatus("Loading manifest...");
+    try {
+      const cached = loadJSONFromLS("priceSheets.cache.v2");
+      const overrides = loadOverrides();
+
+      if (cached && !force) {
+        sheets = { ...cached, ...overrides };
+        setStatus("Loaded from cache (refreshing in background)...");
+        render();
+      } else {
+        sheets = { ...overrides };
+        render();
+      }
+
+      const manifestRes = await fetch(MANIFEST_URL, { cache: "no-store" });
+      if (!manifestRes.ok) {
+        setStatus("Could not load manifest.json. Check /data/manifest.json exists.");
+        showToast("Manifest missing. Add /data/manifest.json to the repo.", "warn");
+        return;
+      }
+
+      const manifest = await manifestRes.json();
+      if (!manifest || !Array.isArray(manifest.lines)) {
+        setStatus("Bad manifest.json format.");
+        showToast("manifest.json must contain { lines: [ {name,file}, ... ] }", "warn");
+        return;
+      }
+
+      setStatus(`Loading ${manifest.lines.length} line(s) from repo...`);
+
+      const remoteSheets = {};
+      for (const line of manifest.lines) {
+        const name = String(line.name || "").trim();
+        const file = String(line.file || "").trim();
+        if (!name || !file) continue;
+        const fileUrl = `./data/${encodeURIComponent(file)}`;
+        try {
+          const buf = await fetchArrayBuffer(fileUrl);
+          const wb = XLSX.read(buf, { type: "array" });
+          remoteSheets[name] = parseWorkbookToLine(name, wb);
+        } catch (e) {
+          console.error(e);
+          showToast(`Failed to load ${name} (${file}).`, "warn");
+        }
+      }
+
+      sheets = { ...remoteSheets, ...overrides };
+      saveJSONToLS(LS_CACHE_KEY, remoteSheets);
+      setStatus(`Loaded ${Object.keys(remoteSheets).length} line(s) from repo.`);
+      render();
+
+      if (Object.keys(remoteSheets).length === 0) {
+        showToast("No lines loaded. Check data filenames in manifest.json.", "warn");
+      }
+    } catch (e) {
+      console.error(e);
+      setStatus("Load error. See console.");
+      showToast("Could not load pricing from repo. Check manifest + file names.", "warn");
+    }
+  }
+
+  function downloadTemplate() {
+    const aoa = [
+      ["Product","Retail","Wholesale"],
+      ['Plate 10"','12.50','9.25'],
+      ['Mug 12oz','8.00','5.75']
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Prices");
+    XLSX.writeFile(wb, "ProductLineTemplate.xlsx");
+  }
+
+  function makeQuoteText() {
+    const sheet = getCurrentSheet();
+    if (!sheet || !state.buyerType) return "No quote (select a product line and buyer type).";
+    const items = [...state.selected.entries()].map(([name, qty]) => {
+      const prod = sheet.products.find(p => p.name === name);
+      const unit = prod ? prod.prices[state.buyerType] : null;
+      const q = Math.max(0, Number(qty || 0));
+      const lt = (unit == null || Number.isNaN(unit)) ? null : unit * q;
+      return { name, qty:q, unit, lt };
+    }).filter(x => x.qty > 0);
+
+    let subtotal = 0;
+    const lines = [];
+    lines.push(`Product line: ${state.lineName}`);
+    lines.push(`Buyer type: ${state.buyerType}`);
+    lines.push("");
+    lines.push("Items:");
+    for (const it of items) {
+      const unitTxt = (it.unit == null || Number.isNaN(it.unit)) ? "N/A" : formatMoney(it.unit);
+      const ltTxt = (it.lt == null) ? "N/A" : formatMoney(it.lt);
+      lines.push(`- ${it.name} | Qty ${it.qty} | Unit ${unitTxt} | Line ${ltTxt}`);
+      if (it.lt != null) subtotal += it.lt;
+    }
+    lines.push("");
+    lines.push(`Subtotal: ${formatMoney(subtotal)}`);
+    return lines.join("\n");
+  }
+
+  function downloadCSV() {
+    const sheet = getCurrentSheet();
+    if (!sheet || !state.buyerType) { showToast("Select a product line and buyer type first.", "warn"); return; }
+    const rows = [["Product line", state.lineName], ["Buyer type", state.buyerType], [], ["Product","Qty","Unit","Line Total"]];
+    let subtotal = 0;
+    for (const [name, qty] of state.selected.entries()) {
+      const prod = sheet.products.find(p => p.name === name);
+      if (!prod) continue;
+      const q = Math.max(0, Number(qty || 0));
+      if (q <= 0) continue;
+      const unit = prod.prices[state.buyerType];
+      const lt = (unit == null || Number.isNaN(unit)) ? "" : unit * q;
+      if (lt !== "") subtotal += lt;
+      rows.push([name, q, unit == null ? "" : unit, lt]);
+    }
+    rows.push([]);
+    rows.push(["Subtotal","","",subtotal]);
+
+    const csv = rows.map(r => r.map(v => {
+      const s = String(v ?? "");
+      return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s;
+    }).join(",")).join("\n");
+
+    const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `quote_${state.lineName}_${state.buyerType}.csv`.replace(/[^\w\-\.]+/g,"_");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function importSpreadsheetOverride(file) {
+    if (!file) { showToast("Choose a spreadsheet file first.", "warn"); return; }
+    const lineName = file.name.replace(/\.(xlsx|xls|csv)$/i, "").trim();
+    if (!lineName) { showToast("Could not infer a product-line name from the file name.", "warn"); return; }
+    const data = await file.arrayBuffer();
+    let wb;
+    try { wb = XLSX.read(data, { type: "array" }); }
+    catch { showToast("Could not read spreadsheet. Ensure it is .xlsx/.xls/.csv.", "warn"); return; }
+
+    try {
+      const parsed = parseWorkbookToLine(lineName, wb);
+      const overrides = loadOverrides();
+      overrides[lineName] = parsed;
+      saveJSONToLS(LS_OVERRIDES_KEY, overrides);
+      sheets[lineName] = parsed;
+      state.lineName = lineName;
+      state.buyerType = "";
+      state.selected.clear();
+      state.search = "";
+      showToast(`Override imported for "${lineName}" (browser-only).`);
+      render();
+    } catch (e) {
+      showToast(String(e.message || e), "warn");
+    }
+  }
+
+  function clearOverrides() {
+    localStorage.removeItem(LS_OVERRIDES_KEY);
+    showToast("Overrides cleared. Reloading repo data...");
+    loadFromRepo({force:true});
+  }
+
+  refreshBtn.addEventListener("click", () => loadFromRepo({force:true}));
+  downloadTemplateBtn.addEventListener("click", downloadTemplate);
+
+  lineSelect.addEventListener("change", () => {
+    state.lineName = lineSelect.value;
+    state.buyerType = "";
+    state.selected.clear();
+    state.search = "";
+    searchInput.value = "";
+    render();
+  });
+
+  buyerSelect.addEventListener("change", () => {
+    state.buyerType = buyerSelect.value;
+    state.selected.clear();
+    render();
+  });
+
+  searchInput.addEventListener("input", () => {
+    state.search = searchInput.value;
+    buildProductList();
+  });
+
+  copyBtn.addEventListener("click", async () => {
+    const text = makeQuoteText();
+    try { await navigator.clipboard.writeText(text); showToast("Quote copied to clipboard."); }
+    catch { showToast("Clipboard blocked. The quote will be shown in an alert for manual copy.", "warn"); alert(text); }
+  });
+
+  downloadCsvBtn.addEventListener("click", downloadCSV);
+
+  clearLineBtn.addEventListener("click", () => {
+    if (!state.lineName) return;
+    state.selected.clear();
+    render();
+    showToast("Cleared selected items for this quote.");
+  });
+
+  if (isAdmin) {
+    importBtn.addEventListener("click", () => importSpreadsheetOverride(fileInput.files[0]));
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files && fileInput.files[0]) importSpreadsheetOverride(fileInput.files[0]);
+    });
+    wipeOverridesBtn.addEventListener("click", clearOverrides);
+  }
+
+  setStatus("Initializing...");
+  render();
+  loadFromRepo({force:false});
+})();
+</script>
+</body>
+</html>
