@@ -105,7 +105,7 @@
             <div class="divider"></div>
             
             <label style="margin-top:10px">NC Sales tax rate (%)</label>
-            <input id="taxRateInput" type="number" min="0" step="0.01" value="7.00" />
+            <input id="taxRateInput" type="number" min="0" step="0.01" value="6.75" />
             <div class="hint" style="margin-top:6px">NC is 4.75% state plus local/transit rates that vary by county. Set this to your applicable combined rate.</div>
             <div class="divider"></div>
             <div class="pill">Subtotal: <span class="total mono" id="subtotal">$0.00</span></div>
@@ -216,7 +216,7 @@
   if (isAdmin) adminBox.classList.remove("hidden");
 
   let sheets = {};
-  let state = { lineName:"", buyerType:"", selected:new Map(), search:"", taxRate: 0.07, discountRate: 0.00 };
+  let state = { lineName:"", buyerType:"", selected:new Map(), search:"", taxRate: 0.0675, discountRate: 0.00 };
 
   function formatMoney(v) {
     const n = Number(v || 0);
