@@ -1,7 +1,7 @@
 {
   "lines": [
     { "name": "Glassia", "file": "Glassia Selling Prices.xlsx" },
-    { "name": "Hummingbird Collection", "file": "Hummingbird.xlsx" }
+    { "name": "Hummingbird Collection", "file": "Hummingbird.xlsx" }, 
     { "name": "Denali Collection", "file": "Denali.xlsx" }
   ]
 }
