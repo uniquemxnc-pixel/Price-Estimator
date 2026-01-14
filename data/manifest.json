@@ -1,7 +1,7 @@
 {
   "lines": [
     { "name": "Glassia", "file": "Glassia Selling Prices.xlsx" },
-    { "name": "Hummingbird Collection", "file": "Hummingbird Collection Anfora by UniqueMX.xlsx" }
-    { "name": "Denali Collection", "file": "Denali Collection Anfora by Unique MX Prices.xlsx" }
+    { "name": "Hummingbird Collection", "file": "Hummingbird.xlsx" }
+    { "name": "Denali Collection", "file": "Denali.xlsx" }
   ]
 }
